@@ -11,6 +11,7 @@ Bevy is an ECS: A custom Entity Component System
 
 ## Tutorial
 [tutorial guide](https://bevy.org/learn/quick-start/getting-started/)
+[index](./Index.md)
 
 ### Requirements
 ```bash
@@ -69,3 +70,53 @@ App provides us with tools for:
 - Initializing resources in the World to store globally available data that we only need a single copy of.
 - Adding systems to our Schedule, which can read and modify resources and our entities' components, according to our game logic.
 - Importing other blocks of App-modifying code using Plugins.
+
+## ECS
+All app logic in Bevy uses the Entity Component System paradigm, which is often shortened to ECS. ECS is a software pattern that involves breaking your program up into *Entities, Components, and Systems*. **Entities** are unique "things" that are assigned groups of **Components**, which are then processed using **Systems**.
+
+In rust this is implemented as
+
+Components: Rust structs that implement the Component trait
+
+```rust
+#[derive(Component)]
+struct Position {
+    x: f32,
+    y: f32,
+}
+```
+
+Systems: normal Rust functions
+
+```rust
+fn print_position_system(query: Query<&Position>) {
+    for position in &query {
+        println!("position: {} {}", position.x, position.y);
+    }
+}
+```
+
+Entities: a simple type containing a unique integer
+
+```rust
+struct Entity(u64);
+```
+
+### Your First System
+Create your main.rs file:
+
+```rust
+use bevy::prelude::*;
+
+fn hello_world() {
+    println!("hello world!");
+}
+
+fn main() {
+    App::new().add_systems(Update, hello_world).run();
+}
+```
+
+The add_systems function adds the system to your App's Update Schedule, but we'll cover that more later.
+
+Now run your app again using cargo run. You should see hello world! printed once in your terminal.
