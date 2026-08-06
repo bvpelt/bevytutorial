@@ -120,3 +120,111 @@ fn main() {
 The add_systems function adds the system to your App's Update Schedule, but we'll cover that more later.
 
 Now run your app again using cargo run. You should see hello world! printed once in your terminal.
+
+### ECS
+Create your main.rs file:
+
+```rust
+use bevy::{prelude::*, ui::update};
+
+#[derive(Component)]
+struct Person;
+
+#[derive(Component)]
+struct Name(String);
+
+fn hello_world() {
+    println!("hello world!");
+}
+
+fn add_people(mut commands: Commands) {
+    commands.spawn((Person, Name("Elaina Proctor".to_string())));
+    commands.spawn((Person, Name("Renzo Hume".to_string())));
+    commands.spawn((Person, Name("Zayna Nieves".to_string())));
+}
+
+fn greet_people(query: Query<&Name, With<Person>>) {
+    for name in &query {
+        println!("hello {}!", name.0);
+    }
+}
+
+fn update_people(mut query: Query<&mut Name, With<Person>>) {
+    for mut name in &mut query {
+        if name.0 == "Elaina Proctor" {
+            name.0 = "Elaina Hume".to_string();
+            break; // We don't need to change any other names.
+        }
+    }
+}
+
+fn main() {
+    App::new()
+        .add_systems(Startup, add_people)
+        .add_systems(Update, (hello_world, (update_people, greet_people).chain()))
+        .run();
+}
+```
+
+Note that we have used .chain() on the two systems. This is because we want both of them to run in exactly the order they're listed in the code: with update_people occurring before greet_people. If they weren’t, the name might change after we greet the people.
+
+### Plugins
+One of Bevy's core principles is modularity. All Bevy engine features are implemented as plugins---collections of code that modify an App. This includes internal features like the renderer, but games themselves are also implemented as plugins! This empowers developers to pick and choose which features they want. Don't need a UI? Don't register the UiPlugin. Want to build a headless server? Don't register the RenderPlugin.
+
+A valuable place to find more is [here](https://bevy.org/assets/)
+
+[Default plugins](https://docs.rs/bevy/latest/bevy/struct.DefaultPlugins.html)
+
+Create your main.rs file:
+
+```rust
+use bevy::{prelude::*, ui::update};
+
+#[derive(Component)]
+struct Person;
+
+#[derive(Component)]
+struct Name(String);
+
+fn hello_world() {
+    println!("hello world!");
+}
+
+fn add_people(mut commands: Commands) {
+    commands.spawn((Person, Name("Elaina Proctor".to_string())));
+    commands.spawn((Person, Name("Renzo Hume".to_string())));
+    commands.spawn((Person, Name("Zayna Nieves".to_string())));
+}
+
+fn greet_people(query: Query<&Name, With<Person>>) {
+    for name in &query {
+        println!("hello {}!", name.0);
+    }
+}
+
+fn update_people(mut query: Query<&mut Name, With<Person>>) {
+    for mut name in &mut query {
+        if name.0 == "Elaina Proctor" {
+            name.0 = "Elaina Hume".to_string();
+            break; // We don't need to change any other names.
+        }
+    }
+}
+
+pub struct HelloPlugin;
+
+impl Plugin for HelloPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, add_people);
+        app.add_systems(Update, (hello_world, (update_people, greet_people).chain()));
+    }
+}
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(HelloPlugin)
+        .run();
+}
+
+```
