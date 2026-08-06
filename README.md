@@ -46,3 +46,26 @@ This changes Cargo.toml and adds
 [dependencies]
 bevy = { version = "0.19.0", features = ["dynamic_linking"] }
 ```
+
+## App
+
+### Minimal bevy program
+
+```rust
+use bevy::prelude::*;
+
+fn main() {
+    App::new().run();
+}
+```
+
+When running ```cargo run``` nothing appens.
+
+An App contains our World, and our World contains our game's data. An App also contains the logic for controlling the outer loop of our game, allowing us to orchestrate the data in our World into the gameplay we want to create.
+
+App is typically only used to setup the structure of your game, which is done by chaining its methods with the builder pattern. Using these App methods, you'll be able to add systems, insert unique resources, and create the entities and components needed for your gameplay.
+
+App provides us with tools for:
+- Initializing resources in the World to store globally available data that we only need a single copy of.
+- Adding systems to our Schedule, which can read and modify resources and our entities' components, according to our game logic.
+- Importing other blocks of App-modifying code using Plugins.
