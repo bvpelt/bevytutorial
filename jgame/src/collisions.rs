@@ -22,6 +22,7 @@ pub struct AnimationTimer(pub Timer);
 pub struct CollisionAssets {
     pub texture: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
+    pub boom_sound: Handle<AudioSource>, // <-- Added audio handle
 }
 
 // ----------------------------------------------------------------------------
@@ -53,7 +54,6 @@ fn setup_collision_assets(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    // Boom animation sheet: 100x90 per frame, 5 frames (indexes 0..=4)
     let texture = asset_server.load("boom.png");
     let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
         UVec2::new(100, 90),
@@ -63,7 +63,14 @@ fn setup_collision_assets(
         None,
     ));
 
-    commands.insert_resource(CollisionAssets { texture, layout });
+    // Load the audio file
+    let boom_sound = asset_server.load("boom.wav");
+
+    commands.insert_resource(CollisionAssets {
+        texture,
+        layout,
+        boom_sound,
+    });
 }
 
 /// AABB Collision Detection System
@@ -77,7 +84,7 @@ fn check_player_enemy_collisions(
         return;
     };
 
-    // Assuming fixed player dimensions for bounding box (adjust to match your player sprite size)
+    let use_sound = false;
     let player_width = 100.0;
     let player_height = 91.0;
     let player_pos = player_transform.translation;
@@ -85,16 +92,20 @@ fn check_player_enemy_collisions(
     for (enemy_entity, enemy_transform, enemy) in &enemy_query {
         let enemy_pos = enemy_transform.translation;
 
-        // AABB Intersection check
         let collision_x = (player_pos.x - enemy_pos.x).abs() * 2.0 < (player_width + enemy.width);
         let collision_y = (player_pos.y - enemy_pos.y).abs() * 2.0 < (player_height + enemy.height);
 
         if collision_x && collision_y {
-            // Despawn enemy on hit
+            // 1. Despawn enemy on hit
             commands.entity(enemy_entity).despawn();
 
-            // Spawn collision boom effect at impact point
+            // 2. Spawn collision boom visual effect
             spawn_collision_effect(&mut commands, &assets, enemy_pos);
+
+            // 3. Play boom sound (Bevy automatically despawns non-looping audio when done)
+            if use_sound {
+                commands.spawn(AudioPlayer(assets.boom_sound.clone()));
+            }
         }
     }
 }
@@ -125,7 +136,6 @@ fn spawn_collision_effect(commands: &mut Commands, assets: &CollisionAssets, pos
     ));
 }
 
-/// Moves collision effects backwards with world speed (matching JS update method)
 fn update_collision_effects(
     game_speed: Res<GameSpeed>,
     mut query: Query<&mut Transform, With<CollisionEffect>>,
@@ -135,7 +145,6 @@ fn update_collision_effects(
     }
 }
 
-/// Advances frames and despawns effect when max_frame is exceeded
 fn animate_collision_effects(
     mut commands: Commands,
     time: Res<Time>,
@@ -153,7 +162,6 @@ fn animate_collision_effects(
             effect.current_frame += 1;
 
             if effect.current_frame > effect.max_frame {
-                // Despawn effect when animation finishes (equivalent to markedForDeletion = true)
                 commands.entity(entity).despawn();
             } else if let Some(atlas) = &mut sprite.texture_atlas {
                 atlas.index = effect.current_frame as usize;
