@@ -1,8 +1,10 @@
 mod background;
+mod enemies;
 mod player;
 
 use background::{BackgroundPlugin, GameSpeed};
 use bevy::prelude::*;
+use enemies::EnemyPlugin;
 use player::{Player, PlayerPlugin, PlayerState, TEXTURE_COLS};
 
 fn setup_camera(mut commands: Commands) {
@@ -78,14 +80,14 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "JGame - Bevy Parallax & Animation".into(),
+                title: "JGame - Bevy Parallax & Animation & Enemies".into(),
                 resolution: (800, 700).into(),
                 ..default()
             }),
             ..default()
         }))
         // Feature Plugins
-        .add_plugins((PlayerPlugin, BackgroundPlugin))
+        .add_plugins((PlayerPlugin, BackgroundPlugin, EnemyPlugin))
         // Environment Systems
         .add_systems(Startup, setup_camera)
         .add_systems(Update, (handle_input, update_game_speed))
