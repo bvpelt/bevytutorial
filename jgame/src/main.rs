@@ -5,6 +5,8 @@ const SPRITE_HEIGHT: f32 = 523.0;
 const TEXTURE_COLS: u32 = 12;
 const TEXTURE_ROWS: u32 = 10;
 
+const LAYER_WIDTH: f32 = 2400.0;
+
 // ----------------------------------------------------------------------------
 // Components & Resources
 // ----------------------------------------------------------------------------
@@ -24,7 +26,6 @@ pub enum PlayerState {
 }
 
 impl PlayerState {
-    /// Maps each state to its row index in the sprite sheet
     fn row_index(&self) -> u32 {
         match self {
             PlayerState::Idle => 0,
@@ -40,7 +41,6 @@ impl PlayerState {
         }
     }
 
-    /// Total number of animation frames for each state
     fn frame_count(&self) -> u32 {
         match self {
             PlayerState::Idle => 7,
@@ -57,19 +57,26 @@ impl PlayerState {
     }
 }
 
-/// Timer component to control animation playback speed (stagger frames)
 #[derive(Component, Deref, DerefMut)]
 pub struct AnimationTimer(pub Timer);
 
-/// Component attached to the Player sprite entity
 #[derive(Component)]
 pub struct Player {
     pub current_frame: u32,
 }
 
-/// Resource holding the TextureAtlasLayout handle for lookups
 #[derive(Resource)]
 pub struct SpriteSheetLayout(pub Handle<TextureAtlasLayout>);
+
+/// Resource controlling overall game speed (equivalent to JS `gameSpeed`)
+#[derive(Resource)]
+pub struct GameSpeed(pub f32);
+
+/// Component attached to parallax layers to control scrolling speed relative to base game speed
+#[derive(Component)]
+pub struct ParallaxLayer {
+    pub speed_modifier: f32,
+}
 
 // ----------------------------------------------------------------------------
 // Systems
@@ -83,10 +90,36 @@ fn setup(
     // 1. Spawn 2D Camera
     commands.spawn(Camera2d);
 
-    // 2. Load Sprite Sheet Image
+    // 2. Spawn Parallax Background Layers
+    let background_configs = [
+        ("layer-1.png", 0.2, -5.0),
+        ("layer-2.png", 0.4, -4.0),
+        ("layer-3.png", 0.6, -3.0),
+        ("layer-4.png", 0.8, -2.0),
+        ("layer-5.png", 1.0, -1.0),
+    ];
+
+    for (image_path, speed_modifier, z_index) in background_configs {
+        let texture: Handle<Image> = asset_server.load(image_path);
+
+        // Spawn two copies side-by-side to allow seamless infinite looping
+        for copy_index in 0..2 {
+            let initial_x = (copy_index as f32) * LAYER_WIDTH;
+
+            commands.spawn((
+                Sprite {
+                    image: texture.clone(),
+                    ..default()
+                },
+                Transform::from_xyz(initial_x, 0.0, z_index),
+                ParallaxLayer { speed_modifier },
+            ));
+        }
+    }
+
+    // 3. Load Player Sprite Sheet Image
     let texture = asset_server.load("shadow_dog.png");
 
-    // 3. Define the Grid Layout (12 columns, 10 rows of 575x523)
     let layout = TextureAtlasLayout::from_grid(
         UVec2::new(SPRITE_WIDTH as u32, SPRITE_HEIGHT as u32),
         TEXTURE_COLS,
@@ -97,11 +130,10 @@ fn setup(
     let layout_handle = texture_atlas_layouts.add(layout);
     commands.insert_resource(SpriteSheetLayout(layout_handle.clone()));
 
-    // Initial state setup: 'Run' state starting frame calculation
     let initial_state = PlayerState::Run;
     let initial_index = (initial_state.row_index() * TEXTURE_COLS) as usize;
 
-    // 4. Spawn Player Entity with Sprite containing TextureAtlas
+    // 4. Spawn Player Entity (at Z = 0.0, in front of background layers)
     commands.spawn((
         Sprite {
             image: texture,
@@ -111,15 +143,45 @@ fn setup(
             }),
             ..default()
         },
-        Transform::from_scale(Vec3::splat(1.0)),
+        // Scaled down slightly if desired to fit the 800x700 viewport cleanly
+        Transform::from_xyz(0.0, -150.0, 0.0).with_scale(Vec3::splat(0.6)),
         Player { current_frame: 0 },
         initial_state,
-        // ~12 FPS animation speed (equivalent to staggerFrame = 5 at 60 FPS)
         AnimationTimer(Timer::from_seconds(0.08, TimerMode::Repeating)),
     ));
 }
 
-/// System that advances the animation frame index every tick
+/// System to handle parallax movement and infinite wrapping
+fn scroll_parallax(
+    time: Res<Time>,
+    game_speed: Res<GameSpeed>,
+    mut query: Query<(&ParallaxLayer, &mut Transform)>,
+) {
+    for (layer, mut transform) in &mut query {
+        // Move left based on Delta Time * Base Speed * Speed Modifier
+        let movement = game_speed.0 * layer.speed_modifier * 10.0 * time.delta_secs();
+        transform.translation.x -= movement;
+
+        // Reset position once a panel moves completely past the left seam
+        if transform.translation.x <= -LAYER_WIDTH {
+            transform.translation.x += LAYER_WIDTH * 2.0;
+        }
+    }
+}
+
+/// System to adjust gameSpeed dynamically with keyboard controls (+ / - or Up/Down arrows)
+fn update_game_speed(keyboard_input: Res<ButtonInput<KeyCode>>, mut game_speed: ResMut<GameSpeed>) {
+    if keyboard_input.just_pressed(KeyCode::ArrowUp) || keyboard_input.just_pressed(KeyCode::KeyW) {
+        game_speed.0 += 5.0;
+        info!("Game speed increased to: {}", game_speed.0);
+    }
+    if keyboard_input.just_pressed(KeyCode::ArrowDown) || keyboard_input.just_pressed(KeyCode::KeyS)
+    {
+        game_speed.0 = (game_speed.0 - 5.0).max(0.0);
+        info!("Game speed decreased to: {}", game_speed.0);
+    }
+}
+
 fn animate_player(
     time: Res<Time>,
     mut query: Query<(&mut AnimationTimer, &mut Player, &PlayerState, &mut Sprite), With<Player>>,
@@ -128,13 +190,9 @@ fn animate_player(
         timer.tick(time.delta());
 
         if timer.just_finished() {
-            // Cycle frame index: 0..state.frame_count()
             player.current_frame = (player.current_frame + 1) % state.frame_count();
-
-            // Calculate linear index in the grid: (row * cols) + col
             let base_index = state.row_index() * TEXTURE_COLS;
 
-            // Access the atlas stored inside the Sprite component
             if let Some(atlas) = &mut sprite.texture_atlas {
                 atlas.index = (base_index + player.current_frame) as usize;
             }
@@ -142,7 +200,6 @@ fn animate_player(
     }
 }
 
-/// System to switch state via keyboard inputs
 fn handle_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&mut PlayerState, &mut Player, &mut Sprite), With<Player>>,
@@ -179,13 +236,12 @@ fn handle_input(
     if keyboard_input.just_pressed(KeyCode::Numpad0) {
         new_state = Some(PlayerState::GetHit);
     }
-    debug!("New state requested: {:?}", new_state);
 
     if let Some(state) = new_state {
         for (mut current_state, mut player, mut sprite) in &mut query {
             if *current_state != state {
                 *current_state = state;
-                player.current_frame = 0; // Reset to frame 0 on state transition
+                player.current_frame = 0;
 
                 if let Some(atlas) = &mut sprite.texture_atlas {
                     atlas.index = (state.row_index() * TEXTURE_COLS) as usize;
@@ -203,15 +259,24 @@ fn handle_input(
 
 fn main() {
     App::new()
+        .insert_resource(GameSpeed(15.0)) // Initial game speed matching your JS variable
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "JGame - Bevy Animation".into(),
-                resolution: (800, 600).into(), // Changed floats to integers (u32, u32)
+                title: "JGame - Bevy Parallax & Animation".into(),
+                resolution: (800, 700).into(), // Adjusted height to match 700px canvas
                 ..default()
             }),
             ..default()
         }))
         .add_systems(Startup, setup)
-        .add_systems(Update, (animate_player, handle_input))
+        .add_systems(
+            Update,
+            (
+                animate_player,
+                handle_input,
+                scroll_parallax,
+                update_game_speed,
+            ),
+        )
         .run();
 }
