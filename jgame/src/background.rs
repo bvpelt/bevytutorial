@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 const LAYER_WIDTH: f32 = 2400.0;
+const LAYER_HEIGHT: f32 = 720.0;
 
 #[derive(Resource)]
 pub struct GameSpeed(pub f32);
@@ -84,19 +85,18 @@ fn enforce_min_window_height(
         return;
     }
 
-    let min_height = 720.0; // fixed value in all layer-*.png
     if let Ok(mut window) = window_query.single_mut() {
-        window.resize_constraints.min_height = min_height;
+        window.resize_constraints.min_height = LAYER_HEIGHT;
 
         // If current window is smaller than min_height, clamp it right now
-        if window.height() < min_height {
+        if window.height() < LAYER_HEIGHT {
             let current_width = window.width();
-            window.resolution.set(current_width, min_height);
+            window.resolution.set(current_width, LAYER_HEIGHT);
         }
 
         info!(
             "Background layers loaded. Enforced min window height: {} px",
-            min_height
+            LAYER_HEIGHT
         );
 
         layer_handles.constraints_applied = true;
