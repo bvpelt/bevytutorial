@@ -1,8 +1,6 @@
 mod background;
 mod collisions;
 mod enemies;
-mod input;
-mod player;
 mod score;
 
 use background::BackgroundPlugin;
@@ -11,9 +9,7 @@ use bevy::text::FontSize;
 use bevy::window::{PresentMode, WindowMode, WindowResized};
 use collisions::CollisionsPlugin;
 use enemies::EnemyPlugin;
-use input::InputPlugin;
-use player::PlayerPlugin;
-use score::Score; // <-- Import Score resource
+use score::Score;
 
 // ----------------------------------------------------------------------------
 // States & Resources
@@ -35,8 +31,8 @@ pub struct GameBounds {
 impl Default for GameBounds {
     fn default() -> Self {
         Self {
-            width: 800.0,
-            height: 700.0,
+            width: 900.0,
+            height: 500.0,
         }
     }
 }
@@ -66,11 +62,10 @@ fn setup_camera(mut commands: Commands) {
 }
 
 fn setup_ui(mut commands: Commands) {
-    // Score display top-left corner
     commands.spawn((
-        Text::new("Score: 0 | Hits: 0/3"),
+        Text::new("Score: 0"),
         TextFont {
-            font_size: FontSize::Px(30.0), // Fixed FontSize type
+            font_size: FontSize::Px(50.0),
             ..default()
         },
         TextColor(Color::WHITE),
@@ -87,17 +82,8 @@ fn setup_ui(mut commands: Commands) {
 fn update_score_text(score: Res<Score>, mut query: Query<&mut Text, With<ScoreText>>) {
     if score.is_changed() {
         for mut text in &mut query {
-            **text = format!(
-                "Score: {} | Hits: {}/{}",
-                score.value, score.collisions, score.max_collisions
-            );
+            **text = format!("Score: {}", score.value);
         }
-    }
-}
-
-fn check_game_over(score: Res<Score>, mut next_state: ResMut<NextState<GameState>>) {
-    if score.collisions >= score.max_collisions {
-        next_state.set(GameState::GameOver);
     }
 }
 
@@ -117,17 +103,9 @@ fn show_game_over_ui(mut commands: Commands, score: Res<Score>) {
         ))
         .with_children(|parent| {
             parent.spawn((
-                Text::new("GAME OVER"),
+                Text::new(format!("GAME OVER, your score: {}", score.value)),
                 TextFont {
-                    font_size: FontSize::Px(60.0), // Fixed FontSize type
-                    ..default()
-                },
-                TextColor(Color::srgb(1.0, 0.2, 0.2)),
-            ));
-            parent.spawn((
-                Text::new(format!("Final Score: {}", score.value)),
-                TextFont {
-                    font_size: FontSize::Px(40.0), // Fixed FontSize type
+                    font_size: FontSize::Px(50.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -153,7 +131,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "JGame - Bevy Parallax & Animation & Enemies".into(),
+                title: "Raven Shooter - Bevy Engine".into(),
                 window_level: bevy::window::WindowLevel::Normal,
                 mode: WindowMode::Windowed,
                 resizable: true,
@@ -166,23 +144,10 @@ fn main() {
         .init_resource::<GameBounds>()
         .init_resource::<Score>()
         // Feature Plugins
-        .add_plugins((
-            PlayerPlugin,
-            BackgroundPlugin,
-            EnemyPlugin,
-            InputPlugin,
-            CollisionsPlugin,
-        ))
+        .add_plugins((BackgroundPlugin, EnemyPlugin, CollisionsPlugin))
         // Environment Systems
         .add_systems(Startup, (setup_camera, setup_ui))
-        .add_systems(
-            Update,
-            (
-                handle_window_resize,
-                update_score_text,
-                check_game_over.run_if(in_state(GameState::InGame)),
-            ),
-        )
+        .add_systems(Update, (handle_window_resize, update_score_text))
         .add_systems(OnEnter(GameState::GameOver), show_game_over_ui)
         .run();
 }

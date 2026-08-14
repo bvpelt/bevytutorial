@@ -1,8 +1,6 @@
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 
 const LAYER_WIDTH: f32 = 2400.0;
-const LAYER_HEIGHT: f32 = 720.0;
 
 #[derive(Resource)]
 pub struct GameSpeed(pub f32);
@@ -12,28 +10,17 @@ pub struct ParallaxLayer {
     pub speed_modifier: f32,
 }
 
-/// Resource holding asset handles for the layers we want to measure
-#[derive(Resource)]
-pub struct BackgroundLayerHandles {
-    pub constraints_applied: bool,
-}
-
 pub struct BackgroundPlugin;
 
 impl Plugin for BackgroundPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(GameSpeed(15.0))
             .add_systems(Startup, setup_background)
-            .add_systems(Update, (enforce_min_window_height, scroll_parallax));
+            .add_systems(Update, scroll_parallax);
     }
 }
 
 fn setup_background(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // Store handles in dynamic resource
-    commands.insert_resource(BackgroundLayerHandles {
-        constraints_applied: false,
-    });
-
     let background_configs = [
         ("layer-1.png", 0.2, -5.0),
         ("layer-2.png", 0.4, -4.0),
@@ -72,33 +59,5 @@ fn scroll_parallax(
         if transform.translation.x <= -LAYER_WIDTH {
             transform.translation.x += LAYER_WIDTH * 2.0;
         }
-    }
-}
-
-/// Checks image metadata once loaded and updates primary window constraints dynamically.
-fn enforce_min_window_height(
-    images: Res<Assets<Image>>,
-    mut layer_handles: ResMut<BackgroundLayerHandles>,
-    mut window_query: Query<&mut Window, With<PrimaryWindow>>,
-) {
-    if layer_handles.constraints_applied {
-        return;
-    }
-
-    if let Ok(mut window) = window_query.single_mut() {
-        window.resize_constraints.min_height = LAYER_HEIGHT;
-
-        // If current window is smaller than min_height, clamp it right now
-        if window.height() < LAYER_HEIGHT {
-            let current_width = window.width();
-            window.resolution.set(current_width, LAYER_HEIGHT);
-        }
-
-        info!(
-            "Background layers loaded. Enforced min window height: {} px",
-            LAYER_HEIGHT
-        );
-
-        layer_handles.constraints_applied = true;
     }
 }

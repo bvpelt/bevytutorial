@@ -1,23 +1,22 @@
 use bevy::prelude::*;
 use rand::RngExt;
 
-use crate::background::GameSpeed;
-use crate::enemies::Enemy;
-use crate::player::Player;
-use crate::score::Score; // <-- Import Score from the crate root
+use crate::GameState;
+use crate::enemies::Raven;
+use crate::score::Score;
 
 // ----------------------------------------------------------------------------
 // Components & Resources
 // ----------------------------------------------------------------------------
 
 #[derive(Component)]
-pub struct CollisionEffect {
+pub struct Explosion {
     pub current_frame: u32,
     pub max_frame: u32,
 }
 
 #[derive(Component)]
-pub struct AnimationTimer(pub Timer);
+pub struct ExplosionTimer(pub Timer);
 
 #[derive(Resource)]
 pub struct CollisionAssets {
@@ -37,11 +36,8 @@ impl Plugin for CollisionsPlugin {
         app.add_systems(Startup, setup_collision_assets)
             .add_systems(
                 Update,
-                (
-                    check_player_enemy_collisions,
-                    update_collision_effects,
-                    animate_collision_effects,
-                ),
+                (handle_mouse_click_shooting, animate_explosions)
+                    .run_if(in_state(GameState::InGame)),
             );
     }
 }
@@ -57,13 +53,12 @@ fn setup_collision_assets(
 ) {
     let texture = asset_server.load("boom.png");
     let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-        UVec2::new(100, 90),
-        5,
+        UVec2::new(200, 179),
+        6,
         1,
         None,
         None,
     ));
-
     let boom_sound = asset_server.load("boom.wav");
 
     commands.insert_resource(CollisionAssets {
@@ -73,51 +68,62 @@ fn setup_collision_assets(
     });
 }
 
-/// AABB Collision Detection System
-fn check_player_enemy_collisions(
+fn handle_mouse_click_shooting(
     mut commands: Commands,
-    player_query: Query<(&Transform, &Sprite), With<Player>>,
-    enemy_query: Query<(Entity, &Transform, &Enemy)>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
+    camera_query: Query<(&Camera, &GlobalTransform)>,
+    windows: Query<&Window>,
+    raven_query: Query<(Entity, &Transform, &Raven)>,
     assets: Res<CollisionAssets>,
     mut score: ResMut<Score>,
 ) {
-    let Ok((player_transform, _player_sprite)) = player_query.single() else {
+    if !mouse_button_input.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let use_sound = false;
-    let player_width = 100.0;
-    let player_height = 91.0;
-    let player_pos = player_transform.translation;
+    // Convert screen cursor position to 2D world coordinates
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+    let Ok(world_position) = camera.viewport_to_world_2d(camera_transform, cursor_position) else {
+        return;
+    };
 
-    for (enemy_entity, enemy_transform, enemy) in &enemy_query {
-        let enemy_pos = enemy_transform.translation;
+    for (entity, transform, raven) in &raven_query {
+        let raven_pos = transform.translation.truncate();
+        let half_width = raven.width / 2.0;
+        let half_height = raven.height / 2.0;
 
-        let collision_x = (player_pos.x - enemy_pos.x).abs() * 2.0 < (player_width + enemy.width);
-        let collision_y = (player_pos.y - enemy_pos.y).abs() * 2.0 < (player_height + enemy.height);
+        // Check AABB click collision
+        if world_position.x >= raven_pos.x - half_width
+            && world_position.x <= raven_pos.x + half_width
+            && world_position.y >= raven_pos.y - half_height
+            && world_position.y <= raven_pos.y + half_height
+        {
+            // 1. Despawn clicked Raven
+            commands.entity(entity).despawn();
 
-        if collision_x && collision_y {
-            // 1. Despawn enemy on hit
-            commands.entity(enemy_entity).despawn();
-
-            // 2. Spawn collision boom visual effect
-            spawn_collision_effect(&mut commands, &assets, enemy_pos);
-
-            // 3. Play boom sound
-            if use_sound {
-                commands.spawn(AudioPlayer(assets.boom_sound.clone()));
-            }
-            // 4. Update Score & Collisions
+            // 2. Increment score
             score.value += 1;
-            score.collisions += 1;
+
+            // 3. Spawn Explosion visual & sound
+            spawn_explosion(&mut commands, &assets, transform.translation, raven.width);
+
+            // Break after hitting top raven (or omit break to hit overlapping ravens)
+            break;
         }
     }
 }
 
-fn spawn_collision_effect(commands: &mut Commands, assets: &CollisionAssets, position: Vec3) {
-    let mut rng = rand::rng();
-    let size_modifier: f32 = rng.random_range(0.5..1.5);
-    let fps: f64 = rng.random_range(5.0..15.0);
+fn spawn_explosion(commands: &mut Commands, assets: &CollisionAssets, position: Vec3, size: f32) {
+    let scale = size / 200.0; // Scale relative to sprite base width (200px)
 
     commands.spawn((
         Sprite {
@@ -128,47 +134,34 @@ fn spawn_collision_effect(commands: &mut Commands, assets: &CollisionAssets, pos
             }),
             ..default()
         },
-        Transform::from_translation(position).with_scale(Vec3::splat(size_modifier)),
-        CollisionEffect {
+        Transform::from_translation(Vec3::new(position.x, position.y - (size / 4.0), 10.0))
+            .with_scale(Vec3::splat(scale)),
+        Explosion {
             current_frame: 0,
-            max_frame: 4,
+            max_frame: 5,
         },
-        AnimationTimer(Timer::from_seconds(
-            (1.0 / fps) as f32,
-            TimerMode::Repeating,
-        )),
+        ExplosionTimer(Timer::from_seconds(0.08, TimerMode::Repeating)),
     ));
+
+    // Play boom sound effect
+    commands.spawn(AudioPlayer(assets.boom_sound.clone()));
 }
 
-fn update_collision_effects(
-    game_speed: Res<GameSpeed>,
-    mut query: Query<&mut Transform, With<CollisionEffect>>,
-) {
-    for mut transform in &mut query {
-        transform.translation.x -= game_speed.0;
-    }
-}
-
-fn animate_collision_effects(
+fn animate_explosions(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(
-        Entity,
-        &mut AnimationTimer,
-        &mut CollisionEffect,
-        &mut Sprite,
-    )>,
+    mut query: Query<(Entity, &mut ExplosionTimer, &mut Explosion, &mut Sprite)>,
 ) {
-    for (entity, mut timer, mut effect, mut sprite) in &mut query {
+    for (entity, mut timer, mut explosion, mut sprite) in &mut query {
         timer.0.tick(time.delta());
 
         if timer.0.just_finished() {
-            effect.current_frame += 1;
+            explosion.current_frame += 1;
 
-            if effect.current_frame > effect.max_frame {
+            if explosion.current_frame > explosion.max_frame {
                 commands.entity(entity).despawn();
             } else if let Some(atlas) = &mut sprite.texture_atlas {
-                atlas.index = effect.current_frame as usize;
+                atlas.index = explosion.current_frame as usize;
             }
         }
     }
