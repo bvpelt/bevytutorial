@@ -43,6 +43,8 @@ pub struct EnemySpawnTimer(pub Timer);
 pub struct EnemyAssets {
     pub fly_texture: Handle<Image>,
     pub fly_layout: Handle<TextureAtlasLayout>,
+    pub raven_texture: Handle<Image>,
+    pub raven_layout: Handle<TextureAtlasLayout>,
     pub plant_texture: Handle<Image>,
     pub plant_layout: Handle<TextureAtlasLayout>,
     pub spider_texture: Handle<Image>,
@@ -94,6 +96,16 @@ fn setup_enemy_assets(
         None,
     ));
 
+    // 271x194 (6 frames)
+    let raven_texture = asset_server.load("raven.png");
+    let raven_layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(271, 194),
+        6,
+        1,
+        None,
+        None,
+    ));
+
     // Ground Enemy (Plant): 60x87 (2 frames)
     let plant_texture = asset_server.load("enemy_plant.png");
     let plant_layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
@@ -117,6 +129,8 @@ fn setup_enemy_assets(
     commands.insert_resource(EnemyAssets {
         fly_texture,
         fly_layout,
+        raven_texture,
+        raven_layout,
         plant_texture,
         plant_layout,
         spider_texture,
@@ -172,6 +186,30 @@ fn spawn_flying_enemy(commands: &mut Commands, assets: &EnemyAssets, rng: &mut i
             max_frame: 5,
             width: 60.0,
             height: 44.0,
+            angle: 0.0,
+            va: rng.random_range(0.1..0.2),
+        },
+        AnimationTimer(Timer::from_seconds(1.0 / 20.0, TimerMode::Repeating)),
+    ));
+
+    commands.spawn((
+        Sprite {
+            image: assets.raven_texture.clone(),
+            texture_atlas: Some(TextureAtlas {
+                layout: assets.raven_layout.clone(),
+                index: 0,
+            }),
+            ..default()
+        },
+        Transform::from_xyz(x, y, 1.0),
+        Enemy {
+            enemy_type: EnemyType::Flying,
+            speed_x: rng.random_range(1.0..2.0),
+            speed_y: 0.0,
+            current_frame: 0,
+            max_frame: 5,
+            width: 271.0,
+            height: 194.0,
             angle: 0.0,
             va: rng.random_range(0.1..0.2),
         },

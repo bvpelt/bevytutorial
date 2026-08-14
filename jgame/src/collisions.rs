@@ -4,6 +4,7 @@ use rand::RngExt;
 use crate::background::GameSpeed;
 use crate::enemies::Enemy;
 use crate::player::Player;
+use crate::score::Score; // <-- Import Score from the crate root
 
 // ----------------------------------------------------------------------------
 // Components & Resources
@@ -22,7 +23,7 @@ pub struct AnimationTimer(pub Timer);
 pub struct CollisionAssets {
     pub texture: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
-    pub boom_sound: Handle<AudioSource>, // <-- Added audio handle
+    pub boom_sound: Handle<AudioSource>,
 }
 
 // ----------------------------------------------------------------------------
@@ -63,7 +64,6 @@ fn setup_collision_assets(
         None,
     ));
 
-    // Load the audio file
     let boom_sound = asset_server.load("boom.wav");
 
     commands.insert_resource(CollisionAssets {
@@ -79,6 +79,7 @@ fn check_player_enemy_collisions(
     player_query: Query<(&Transform, &Sprite), With<Player>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
     assets: Res<CollisionAssets>,
+    mut score: ResMut<Score>,
 ) {
     let Ok((player_transform, _player_sprite)) = player_query.single() else {
         return;
@@ -102,10 +103,13 @@ fn check_player_enemy_collisions(
             // 2. Spawn collision boom visual effect
             spawn_collision_effect(&mut commands, &assets, enemy_pos);
 
-            // 3. Play boom sound (Bevy automatically despawns non-looping audio when done)
+            // 3. Play boom sound
             if use_sound {
                 commands.spawn(AudioPlayer(assets.boom_sound.clone()));
             }
+            // 4. Update Score & Collisions
+            score.value += 1;
+            score.collisions += 1;
         }
     }
 }
