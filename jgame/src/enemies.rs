@@ -1,251 +1,345 @@
 use bevy::prelude::*;
+use rand::Rng;
 use rand::RngExt;
+use uuid::Uuid;
 
-use crate::GameBounds;
-use crate::GameState;
-
-// ----------------------------------------------------------------------------
-// Components & Resources
-// ----------------------------------------------------------------------------
-
-#[derive(Component)]
-pub struct Raven {
-    pub width: f32,
-    pub height: f32,
-    pub direction_x: f32,
-    pub direction_y: f32,
-    pub color: Color,
-    pub has_trail: bool,
-}
-
-#[derive(Component)]
-pub struct Particle {
-    pub radius: f32,
-    pub max_radius: f32,
-    pub speed_x: f32,
-    pub color: Color,
-}
-
-#[derive(Component)]
-pub struct FlapTimer(pub Timer);
-
-#[derive(Resource)]
-pub struct RavenSpawnTimer(pub Timer);
-
-#[derive(Resource)]
-pub struct RavenAssets {
-    pub texture: Handle<Image>,
-    pub layout: Handle<TextureAtlasLayout>,
-}
-
-// ----------------------------------------------------------------------------
-// Plugin Implementation
-// ----------------------------------------------------------------------------
+pub const WINDOW_WIDTH: f32 = 800.0;
+pub const WINDOW_HEIGHT: f32 = 800.0;
 
 pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(RavenSpawnTimer(Timer::from_seconds(
+        app.insert_resource(EnemySpawnTimer(Timer::from_seconds(
             0.5,
             TimerMode::Repeating,
         )))
-        .add_systems(Startup, setup_raven_assets)
+        .add_systems(Startup, setup_enemy_assets)
         .add_systems(
             Update,
             (
-                spawn_ravens,
-                update_ravens,
-                animate_ravens_and_spawn_particles,
-                update_particles,
-                check_escaped_ravens,
-            )
-                .run_if(in_state(GameState::InGame)),
+                spawn_enemies,
+                animate_enemies,
+                update_worms,
+                update_ghosts,
+                update_spiders,
+                draw_spider_webs,
+                cleanup_offscreen_enemies,
+            ),
         );
     }
 }
 
-// ----------------------------------------------------------------------------
-// Systems
-// ----------------------------------------------------------------------------
+/// Resource storing handles to enemy sprite sheets and layouts
+#[derive(Resource)]
+pub struct EnemyAssets {
+    pub worm_texture: Handle<Image>,
+    pub worm_layout: Handle<TextureAtlasLayout>,
+    pub ghost_texture: Handle<Image>,
+    pub ghost_layout: Handle<TextureAtlasLayout>,
+    pub spider_texture: Handle<Image>,
+    pub spider_layout: Handle<TextureAtlasLayout>,
+}
 
-fn setup_raven_assets(
+// Resource to manage enemy spawn interval (equivalent to enemyInterval = 500ms)
+#[derive(Resource)]
+pub struct EnemySpawnTimer(pub Timer);
+
+// Base marker and frame animation data
+#[derive(Debug, Component)]
+pub struct Enemy {
+    pub animation_timer: Timer,
+    pub frame_index: usize,
+    pub max_frames: usize,
+    pub name: String,
+}
+
+// Enemy type components
+#[derive(Component)]
+pub struct Worm {
+    pub vx: f32,
+    pub width: f32,
+    //    pub height: f32,
+}
+
+#[derive(Component)]
+pub struct Ghost {
+    pub vx: f32,
+    pub angle: f32,
+    pub curve: f32,
+    pub width: f32,
+}
+
+#[derive(Component)]
+pub struct Spider {
+    pub vy: f32,
+    pub max_length: f32,
+    //    pub width: f32,
+    pub height: f32,
+}
+
+fn spawn_enemy_worm(commands: &mut Commands, assets: &EnemyAssets, rng: &mut impl Rng) {
+    // Worm: Spawns at bottom right, moves left
+    let sprite_width = 229.0;
+    let sprite_height = 171.0;
+    let width = sprite_width / 2.0;
+    let height = sprite_height / 2.0;
+
+    let vx = (1.0 + rng.random_range(0.0..1.0)) * 0.1;
+    let x = WINDOW_WIDTH; // / 2.0 + width / 2.0;
+    let y = height; //-WINDOW_HEIGHT / 2.0 + height / 2.0;
+
+    commands.spawn((
+        Sprite {
+            image: assets.worm_texture.clone(),
+            texture_atlas: Some(TextureAtlas {
+                layout: assets.worm_layout.clone(),
+                index: 0,
+            }),
+            ..default()
+        },
+        Transform::from_xyz(x, y, 1.0).with_scale(Vec3::splat(0.5)),
+        Enemy {
+            animation_timer: Timer::from_seconds(0.05, TimerMode::Repeating),
+            frame_index: 0,
+            max_frames: 5,
+            name: format!("Worm_{}", Uuid::new_v4().urn()),
+        },
+        Worm {
+            vx,
+            width, /*, height  */
+        },
+    ));
+}
+
+fn spawn_enemy_ghost(commands: &mut Commands, assets: &EnemyAssets, rng: &mut impl Rng) {
+    let sprite_width = 261.0;
+    //    let sprite_height = 209.0;
+    let width = sprite_width / 2.0;
+
+    let vx = rng.random_range(0.0..1.0) * 0.2 + 0.1; //rng.random_range(0.1..0.3) * 100.0;
+    let x = WINDOW_WIDTH / 2.0 + width / 2.0;
+    let y_range = WINDOW_HEIGHT * 0.6;
+    let y = (WINDOW_HEIGHT / 2.0) - rng.random_range(0.0..y_range);
+
+    commands.spawn((
+        Sprite {
+            image: assets.ghost_texture.clone(),
+            texture_atlas: Some(TextureAtlas {
+                layout: assets.ghost_layout.clone(),
+                index: 0,
+            }),
+            color: Color::srgba(1.0, 1.0, 1.0, 0.7),
+
+            ..default()
+        },
+        Transform::from_xyz(x, y, 2.0).with_scale(Vec3::splat(0.5)),
+        Enemy {
+            animation_timer: Timer::from_seconds(0.1, TimerMode::Repeating),
+            frame_index: 0,
+            max_frames: 5,
+            name: format!("Ghost_{}", Uuid::new_v4().urn()),
+        },
+        Ghost {
+            vx,
+            angle: 0.0,
+            curve: rng.random_range(0.5..3.0),
+            width,
+        },
+    ));
+}
+
+fn spawn_enemy_spider(commands: &mut Commands, assets: &EnemyAssets, rng: &mut impl Rng) {
+    let sprite_width = 310.0;
+    let sprite_height = 175.0;
+    //    let width = sprite_width / 2.0;
+    let height = sprite_height / 2.0;
+
+    let vy = rng.random_range(0.1..0.2) * 100.0;
+    let x = rng.random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0);
+    let y = WINDOW_HEIGHT / 2.0 + height;
+    let max_length = (WINDOW_HEIGHT / 2.0) - rng.random_range(50.0..WINDOW_HEIGHT);
+
+    commands.spawn((
+        Sprite {
+            image: assets.spider_texture.clone(),
+            texture_atlas: Some(TextureAtlas {
+                layout: assets.spider_layout.clone(),
+                index: 0,
+            }),
+            ..default()
+        },
+        Transform::from_xyz(x, y, 3.0).with_scale(Vec3::splat(0.5)),
+        Enemy {
+            animation_timer: Timer::from_seconds(0.1, TimerMode::Repeating),
+            frame_index: 0,
+            max_frames: 5,
+            name: format!("Spider_{}", Uuid::new_v4().urn()),
+        },
+        Spider {
+            vy,
+            max_length,
+            // width,
+            height,
+        },
+    ));
+}
+
+fn spawn_enemies(
+    time: Res<Time>,
+    mut spawn_timer: ResMut<EnemySpawnTimer>,
+    //enemy_assets: Option<Res<EnemyAssets>>,
+    assets: Res<EnemyAssets>,
+    mut commands: Commands,
+) {
+    /*
+    let Some(assets) = enemy_assets else {
+        error!("no resources loaded");
+        return;
+    };
+     */
+
+    spawn_timer.0.tick(time.delta());
+    if !spawn_timer.0.just_finished() {
+        //info!("Spawn timer just finished");
+        return;
+    }
+
+    let mut rng = rand::rng();
+    let enemy_type = rng.random_range(0..3);
+
+    //info!("Using enemy_type: {:?}", enemy_type);
+
+    match enemy_type {
+        0 => {
+            // Spawn Worm Enemy
+            spawn_enemy_worm(&mut commands, &assets, &mut rng);
+        }
+        1 => {
+            // Spawn Ghost Enemy
+            spawn_enemy_ghost(&mut commands, &assets, &mut rng);
+        }
+        2 => {
+            // Spawn Spider Enemy
+            spawn_enemy_spider(&mut commands, &assets, &mut rng);
+        }
+        _ => {}
+    }
+}
+
+fn setup_enemy_assets(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let texture = asset_server.load("raven.png");
-    let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-        UVec2::new(271, 194),
+    // Worm Enemy: 70x60 (6 frames)
+    let worm_texture = asset_server.load("enemy_worm.png");
+    let worm_layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(70, 60),
         6,
         1,
         None,
         None,
     ));
 
-    commands.insert_resource(RavenAssets { texture, layout });
+    // Ghost Enemy (Plant): 1566/6= 261x209  60x87 (2 frames)
+    let ghost_texture = asset_server.load("enemy_ghost.png");
+    let ghost_layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(261, 209),
+        6,
+        1,
+        None,
+        None,
+    ));
+
+    // Climbing Enemy (Spider): 1860/6 = 310x175 (6 frames)
+    let spider_texture = asset_server.load("enemy_spider.png");
+    let spider_layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(310, 175),
+        6,
+        1,
+        None,
+        None,
+    ));
+
+    commands.insert_resource(EnemyAssets {
+        worm_texture,
+        worm_layout,
+        ghost_texture,
+        ghost_layout,
+        spider_texture,
+        spider_layout,
+    });
 }
 
-fn spawn_ravens(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut timer: ResMut<RavenSpawnTimer>,
-    assets: Res<RavenAssets>,
-    bounds: Res<GameBounds>,
-) {
-    timer.0.tick(time.delta());
-
-    if timer.0.just_finished() {
-        let mut rng = rand::rng();
-
-        let size_modifier: f32 = rng.random_range(0.4..1.0);
-        let sprite_width = 271.0;
-        let sprite_height = 194.0;
-        let width = sprite_width * size_modifier;
-        let height = sprite_height * size_modifier;
-
-        // Spawn on the right edge, random Y inside bounds
-        let x = bounds.half_width() + (width / 2.0);
-        let y_min = -bounds.half_height() + (height / 2.0);
-        let y_max = bounds.half_height() - (height / 2.0);
-        let y = rng.random_range(y_min..y_max);
-
-        let direction_x = rng.random_range(3.0..8.0) * 60.0; // Scaled to pixels/sec
-        let direction_y = rng.random_range(-2.5..2.5) * 60.0;
-
-        let flap_interval = rng.random_range(0.05..0.1);
-        let color = Color::srgb(
-            rng.random_range(0.2..1.0),
-            rng.random_range(0.2..1.0),
-            rng.random_range(0.2..1.0),
-        );
-
-        // Sorting / Z-indexing: smaller ravens in the back
-        let z_index = 1.0 + size_modifier;
-
-        commands.spawn((
-            Sprite {
-                image: assets.texture.clone(),
-                texture_atlas: Some(TextureAtlas {
-                    layout: assets.layout.clone(),
-                    index: 0,
-                }),
-                color,
-                ..default()
-            },
-            Transform::from_xyz(x, y, z_index).with_scale(Vec3::splat(size_modifier)),
-            Raven {
-                width,
-                height,
-                direction_x,
-                direction_y,
-                color,
-                has_trail: rng.random_bool(0.5),
-            },
-            FlapTimer(Timer::from_seconds(flap_interval, TimerMode::Repeating)),
-        ));
-    }
-}
-
-fn update_ravens(
-    time: Res<Time>,
-    bounds: Res<GameBounds>,
-    mut query: Query<(&mut Raven, &mut Transform)>,
-) {
-    let dt = time.delta_secs();
-
-    for (mut raven, mut transform) in &mut query {
-        // Bounce off top/bottom bounds
-        let top_bound = bounds.half_height() - (raven.height / 2.0);
-        let bottom_bound = -bounds.half_height() + (raven.height / 2.0);
-
-        if transform.translation.y > top_bound || transform.translation.y < bottom_bound {
-            raven.direction_y *= -1.0;
-        }
-
-        transform.translation.x -= raven.direction_x * dt;
-        transform.translation.y += raven.direction_y * dt;
-    }
-}
-
-fn animate_ravens_and_spawn_particles(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut query: Query<(&mut FlapTimer, &Raven, &Transform, &mut Sprite)>,
-) {
-    let mut rng = rand::rng();
-
-    for (mut timer, raven, transform, mut sprite) in &mut query {
-        timer.0.tick(time.delta());
-
-        if timer.0.just_finished() {
+fn animate_enemies(time: Res<Time>, mut query: Query<(&mut Enemy, &mut Sprite)>) {
+    for (mut enemy, mut sprite) in &mut query {
+        enemy.animation_timer.tick(time.delta());
+        if enemy.animation_timer.just_finished() {
+            enemy.frame_index = (enemy.frame_index + 1) % (enemy.max_frames + 1);
             if let Some(atlas) = &mut sprite.texture_atlas {
-                atlas.index = (atlas.index + 1) % 6;
-            }
-
-            // Spawn trail particles on flap
-            if raven.has_trail {
-                for _ in 0..5 {
-                    let offset_x = rng.random_range(-25.0..25.0);
-                    let offset_y = rng.random_range(-25.0..25.0);
-                    let radius = rng.random_range(1.0..(raven.width / 10.0).max(2.0));
-                    let max_radius = rng.random_range(25.0..45.0);
-
-                    commands.spawn((
-                        Sprite {
-                            color: raven.color,
-                            ..default()
-                        },
-                        Transform::from_xyz(
-                            transform.translation.x + offset_x,
-                            transform.translation.y + offset_y,
-                            transform.translation.z - 0.1,
-                        ),
-                        Particle {
-                            radius,
-                            max_radius,
-                            speed_x: rng.random_range(30.0..90.0),
-                            color: raven.color,
-                        },
-                    ));
-                }
+                atlas.index = enemy.frame_index;
             }
         }
     }
 }
 
-fn update_particles(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut query: Query<(Entity, &mut Particle, &mut Transform, &mut Sprite)>,
-) {
-    let dt = time.delta_secs();
+fn update_worms(time: Res<Time>, mut query: Query<(&Worm, &mut Transform)>) {
+    for (worm, mut transform) in &mut query {
+        transform.translation.x -= worm.vx * time.delta_secs();
+    }
+}
 
-    for (entity, mut particle, mut transform, mut sprite) in &mut query {
-        transform.translation.x += particle.speed_x * dt;
-        particle.radius += 18.0 * dt;
+fn update_ghosts(time: Res<Time>, mut query: Query<(&mut Ghost, &mut Transform)>) {
+    for (mut ghost, mut transform) in &mut query {
+        transform.translation.x -= ghost.vx * time.delta_secs();
+        transform.translation.y += ghost.angle.sin() * ghost.curve;
+        ghost.angle += 0.04;
+    }
+}
 
-        if particle.radius > particle.max_radius - 5.0 {
-            commands.entity(entity).despawn();
-        } else {
-            // Scale particle transform & fade alpha based on radius ratio
-            transform.scale = Vec3::splat(particle.radius);
-            let alpha = (1.0 - (particle.radius / particle.max_radius)).clamp(0.0, 1.0);
-            sprite.color = particle.color.with_alpha(alpha);
+fn update_spiders(time: Res<Time>, mut query: Query<(&mut Spider, &mut Transform)>) {
+    for (mut spider, mut transform) in &mut query {
+        transform.translation.y -= spider.vy * time.delta_secs();
+
+        if transform.translation.y < spider.max_length {
+            spider.vy *= -1.0;
         }
     }
 }
 
-fn check_escaped_ravens(
+fn draw_spider_webs(mut gizmos: Gizmos, query: Query<(&Transform, &Spider)>) {
+    for (transform, _spider) in &query {
+        let top_pos = Vec2::new(transform.translation.x, WINDOW_HEIGHT / 2.0);
+        let spider_pos = Vec2::new(transform.translation.x, transform.translation.y + 10.0);
+        gizmos.line_2d(top_pos, spider_pos, Color::WHITE);
+    }
+}
+
+fn cleanup_offscreen_enemies(
     mut commands: Commands,
-    bounds: Res<GameBounds>,
-    query: Query<(Entity, &Transform, &Raven)>,
-    mut next_state: ResMut<NextState<GameState>>,
+    worm_query: Query<(Entity, &Transform, &Worm)>,
+    ghost_query: Query<(Entity, &Transform, &Ghost)>,
+    spider_query: Query<(Entity, &Transform, &Spider)>,
 ) {
-    for (entity, transform, raven) in &query {
-        if transform.translation.x < -bounds.half_width() - (raven.width / 2.0) {
+    for (entity, transform, worm) in &worm_query {
+        if transform.translation.x < -WINDOW_WIDTH / 2.0 - worm.width {
+            info!("Worm removed {:?}", entity);
             commands.entity(entity).despawn();
-            next_state.set(GameState::GameOver);
+        }
+    }
+
+    for (entity, transform, ghost) in &ghost_query {
+        if transform.translation.x < -WINDOW_WIDTH / 2.0 - ghost.width {
+            info!("Ghost removed {:?}", entity);
+            commands.entity(entity).despawn();
+        }
+    }
+
+    for (entity, transform, spider) in &spider_query {
+        if transform.translation.y > WINDOW_HEIGHT / 2.0 + spider.height * 2.0 {
+            info!("Spider removed {:?}", entity);
+            commands.entity(entity).despawn();
         }
     }
 }
