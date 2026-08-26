@@ -8,28 +8,15 @@ use components::*;
 use enemy::{enemy_movement_system, enemy_spawner_system};
 use player::{player_animation_system, player_movement_system};
 
-use bevy::camera::ScalingMode;
 use bevy::prelude::*;
-use bevy::window::{PresentMode, WindowMode, WindowResizeConstraints, WindowResolution};
-
-pub const WINDOW_HEIGHT: f32 = 700.0;
-pub const WINDOW_WIDTH: f32 = 2400.0;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "JGame - Bevy Parallax & Animation & Enemies".into(),
-                resolution: WindowResolution::new(1600, WINDOW_HEIGHT as u32),
-                resize_constraints: WindowResizeConstraints {
-                    min_height: WINDOW_HEIGHT,
-                    max_height: WINDOW_HEIGHT,
-                    ..default()
-                },
-                window_level: bevy::window::WindowLevel::Normal,
-                mode: WindowMode::Windowed,
+                title: "2D Side-Scroller (Bevy)".into(),
+                resolution: (800, 720).into(),
                 resizable: true,
-                present_mode: PresentMode::AutoVsync,
                 ..default()
             }),
             ..default()
@@ -61,21 +48,13 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    // 2D Camera with fixed vertical scaling mode (700 units tall)
-    commands.spawn((
-        Camera2d,
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: WINDOW_HEIGHT,
-            },
-            ..OrthographicProjection::default_2d()
-        }),
-    ));
+    // Spawn 2D Camera
+    commands.spawn(Camera2d);
 
     // Load Sprites and Layouts
-    let player_texture: Handle<Image> = asset_server.load("images/player.png");
-    let bg_texture: Handle<Image> = asset_server.load("images/background_single.png");
-    let enemy_texture: Handle<Image> = asset_server.load("images/enemy_1.png");
+    let player_texture: Handle<Image> = asset_server.load("player.png");
+    let bg_texture: Handle<Image> = asset_server.load("background_single.png");
+    let enemy_texture: Handle<Image> = asset_server.load("enemy_1.png");
 
     let player_layout = TextureAtlasLayout::from_grid(UVec2::new(200, 200), 9, 2, None, None);
     let player_atlas_layout = texture_atlas_layouts.add(player_layout);
@@ -91,13 +70,13 @@ fn setup(
         enemy_texture,
     });
 
-    // Spawn Backgrounds (seamless tiling pair for 2400x700 canvas)
-    let bg_width = WINDOW_WIDTH;
+    // Spawn Backgrounds (seamless tiling pair)
+    let bg_width = 2400.0;
     for i in 0..2 {
         commands.spawn((
             Sprite {
                 image: bg_texture.clone(),
-                custom_size: Some(Vec2::new(bg_width, 700.0)),
+                custom_size: Some(Vec2::new(bg_width, 720.0)),
                 ..default()
             },
             Transform::from_xyz(i as f32 * bg_width, 0.0, 0.0),
@@ -108,8 +87,8 @@ fn setup(
         ));
     }
 
-    // Spawn Player aligned to bottom of 700px height (bottom = -350.0)
-    let ground_y = -350.0 + 100.0;
+    // Spawn Player
+    let ground_y = -360.0 + 100.0; // Align to bottom canvas
     commands.spawn((
         Sprite {
             image: player_texture,
@@ -149,7 +128,7 @@ fn setup(
         ScoreText,
     ));
 
-    // UI Game Over Banner
+    // UI Game Over Banner (Hidden initially)
     commands.spawn((
         Text::new("GAME OVER, try again!"),
         TextFont {
@@ -184,6 +163,7 @@ fn collision_system(
             let enemy_pos = enemy_transform.translation.truncate();
             let distance = player_pos.distance(enemy_pos);
 
+            // Radius collision threshold check
             if distance < 80.0 {
                 next_state.set(GameState::GameOver);
                 break;
