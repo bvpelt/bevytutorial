@@ -4,13 +4,16 @@ mod enemy;
 mod player;
 
 use background::background_scroll_system;
+use bevy::window::MonitorSelection::Current;
 use components::*;
 use enemy::{enemy_movement_system, enemy_spawner_system};
 use player::{player_animation_system, player_movement_system};
 
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
-use bevy::window::{PresentMode, WindowMode, WindowResizeConstraints, WindowResolution};
+use bevy::window::{
+    PresentMode, PrimaryWindow, WindowMode, WindowResizeConstraints, WindowResolution,
+};
 
 pub const WINDOW_HEIGHT: f32 = 700.0;
 pub const WINDOW_WIDTH: f32 = 2400.0;
@@ -20,7 +23,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "JGame - Bevy Parallax & Animation & Enemies".into(),
-                resolution: WindowResolution::new(1600, WINDOW_HEIGHT as u32),
+                resolution: WindowResolution::new(1200, WINDOW_HEIGHT as u32),
                 resize_constraints: WindowResizeConstraints {
                     min_height: WINDOW_HEIGHT,
                     max_height: WINDOW_HEIGHT,
@@ -50,6 +53,8 @@ fn main() {
                 enemy_movement_system,
                 background_scroll_system,
                 collision_system,
+                restart_game_system,
+                toggle_fullscreen_system,
                 update_ui_system,
             ),
         )
@@ -108,7 +113,7 @@ fn setup(
         ));
     }
 
-    // Spawn Player aligned to bottom of 700px height (bottom = -350.0)
+    // Spawn Player
     let ground_y = -350.0 + 100.0;
     commands.spawn((
         Sprite {
@@ -151,16 +156,16 @@ fn setup(
 
     // UI Game Over Banner
     commands.spawn((
-        Text::new("GAME OVER, try again!"),
+        Text::new("GAME OVER, press Enter to restart!"),
         TextFont {
-            font_size: FontSize::Px(50.0),
+            font_size: FontSize::Px(44.0),
             ..default()
         },
         TextColor(Color::NONE),
         Node {
             position_type: PositionType::Absolute,
             top: Val::Px(300.0),
-            left: Val::Percent(30.0),
+            left: Val::Percent(20.0),
             ..default()
         },
         GameOverText,
@@ -188,6 +193,57 @@ fn collision_system(
                 next_state.set(GameState::GameOver);
                 break;
             }
+        }
+    }
+}
+
+fn restart_game_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    game_state: Res<State<GameState>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut score: ResMut<Score>,
+    mut player_query: Query<(&mut Transform, &mut Player)>,
+    enemy_query: Query<Entity, With<Enemy>>,
+    mut commands: Commands,
+    mut game_over_query: Query<(&mut Text, &mut TextColor), With<GameOverText>>,
+) {
+    if *game_state.get() == GameState::GameOver && keyboard_input.just_pressed(KeyCode::Enter) {
+        // 1. Reset Score
+        score.0 = 0;
+
+        // 2. Despawn active enemies
+        for entity in enemy_query.iter() {
+            commands.entity(entity).despawn();
+        }
+
+        // 3. Reset Player position and movement variables
+        if let Ok((mut transform, mut player)) = player_query.single_mut() {
+            transform.translation.x = -250.0;
+            transform.translation.y = player.ground_y;
+            player.vy = 0.0;
+            player.is_grounded = true;
+        }
+
+        // 4. Hide Game Over text
+        if let Ok((_, mut text_color)) = game_over_query.single_mut() {
+            text_color.0 = Color::NONE;
+        }
+
+        // 5. Resume Game State
+        next_state.set(GameState::Playing);
+    }
+}
+
+fn toggle_fullscreen_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut window_query: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::F11) {
+        if let Ok(mut window) = window_query.single_mut() {
+            window.mode = match window.mode {
+                WindowMode::Windowed => WindowMode::BorderlessFullscreen(Current),
+                _ => WindowMode::Windowed,
+            };
         }
     }
 }
